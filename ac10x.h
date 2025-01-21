@@ -29,9 +29,6 @@
 /* enable headset detecting & headset button pressing */
 #define CONFIG_AC101_SWITCH_DETECT
 
-/* obsolete */
-#define CONFIG_AC10X_TRIG_LOCK	0
-
 
 #ifdef AC101_DEBG
     #define AC101_DBG(format,args...)  printk("[AC101] %s() L%d " format, __func__, __LINE__, ##args)
@@ -72,7 +69,6 @@ struct ac10x_priv {
 
 	struct mutex dac_mutex;
 	u8 dac_enable;
-	spinlock_t lock;
 	u8 aif1_clken;
 
 	struct work_struct codec_resume;

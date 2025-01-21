@@ -1269,7 +1269,6 @@ int ac101_trigger(struct snd_pcm_substream *substream, int cmd,
 	case SNDRV_PCM_TRIGGER_RESUME:
 	case SNDRV_PCM_TRIGGER_PAUSE_RELEASE:
 		#if _MASTER_MULTI_CODEC == _MASTER_AC101
-		spin_lock_irqsave(&ac10x->lock, flags);
 		if (ac10x->aif1_clken == 0){
 			/*
 			 * enable aif1clk, it' here due to reduce time between 'AC108 Sysclk Enable' and 'AC101 Sysclk Enable'
@@ -1279,7 +1278,6 @@ int ac101_trigger(struct snd_pcm_substream *substream, int cmd,
 			ret = ret || ac101_update_bits(codec, MOD_CLK_ENA, (0x1<<MOD_CLK_AIF1), (0x1<<MOD_CLK_AIF1));
 			ret = ret || ac101_update_bits(codec, MOD_RST_CTRL, (0x1<<MOD_RESET_AIF1), (0x1<<MOD_RESET_AIF1));
 		}
-		spin_unlock_irqrestore(&ac10x->lock, flags);
 		#endif
 		break;
 	case SNDRV_PCM_TRIGGER_STOP:

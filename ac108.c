@@ -997,8 +997,6 @@ static int ac108_set_clock(int y_start_n_stop, struct snd_pcm_substream *substre
 
 	dev_dbg(ac10x->codec->dev, "%s() L%d cmd:%d\n", __func__, __LINE__, y_start_n_stop);
 
-	/* spin_lock move to machine trigger */
-
 	if (y_start_n_stop && ac10x->i2c101 && _MASTER_MULTI_CODEC == _MASTER_AC101) {
 		ac101_trigger(substream, cmd, dai);
 	}
@@ -1047,9 +1045,22 @@ static int ac108_prepare(struct snd_pcm_substream *substream,
 	return 0;
 }
 
-static int ac108_trigger(struct snd_pcm_substream *substream, int cmd,
-			     struct snd_soc_dai *dai)
+struct ac108_trigger_work {
+	struct work_struct work;
+	struct snd_pcm_substream *substream;
+	struct snd_soc_dai *dai;
+	int cmd;
+};
+
+static void _ac108_trigger(struct work_struct *work)
 {
+	struct ac108_trigger_work *trigger_work =
+		container_of(work, struct ac108_trigger_work, work);
+
+	struct snd_pcm_substream *substream = trigger_work->substream;
+	struct snd_soc_dai *dai = trigger_work->dai;
+	int cmd = trigger_work->cmd;
+
 	struct snd_soc_codec *codec = dai->codec;
 	struct ac10x_priv *ac10x = snd_soc_codec_get_drvdata(codec);
 	unsigned long flags;
@@ -1065,15 +1076,12 @@ static int ac108_trigger(struct snd_pcm_substream *substream, int cmd,
 	case SNDRV_PCM_TRIGGER_START:
 	case SNDRV_PCM_TRIGGER_RESUME:
 	case SNDRV_PCM_TRIGGER_PAUSE_RELEASE:
-		spin_lock_irqsave(&ac10x->lock, flags);
 		/* disable global clock if lrck disabled */
 		ac10x_read(I2S_CTRL, &r, ac10x->i2cmap[_MASTER_INDEX]);
 		if ((r & (0x01 << BCLK_IOEN)) && (r & (0x01 << LRCK_IOEN)) == 0) {
 			/* disable global clock */
 			ac108_multi_update_bits(I2S_CTRL, 0x1 << TXEN | 0x1 << GEN, 0x0 << TXEN | 0x0 << GEN, ac10x);
 		}
-		spin_unlock_irqrestore(&ac10x->lock, flags);
-
 		/* delayed clock starting, move to machine trigger() */
 		break;
 	case SNDRV_PCM_TRIGGER_STOP:
@@ -1091,7 +1099,26 @@ static int ac108_trigger(struct snd_pcm_substream *substream, int cmd,
 		__FUNCTION__,
 		snd_pcm_stream_str(substream),
 		cmd, ret);
-	return ret;
+
+	kfree(trigger_work);
+}
+
+static int ac108_trigger(struct snd_pcm_substream *substream, int cmd,
+				 struct snd_soc_dai *dai)
+{
+	struct ac108_trigger_work *work = kmalloc(sizeof(*work), GFP_KERNEL);
+	if (work) {
+		work->substream = substream;
+		work->dai = dai;
+		work->cmd = cmd;
+
+		INIT_WORK(&work->work, _ac108_trigger);
+		schedule_work(&work->work);
+
+		return 0;
+	}
+
+	return -ENOMEM;
 }
 
 int ac108_audio_startup(struct snd_pcm_substream *substream,
@@ -1221,8 +1248,6 @@ static int ac108_add_widgets(struct snd_soc_codec *codec) {
 }
 
 static int ac108_codec_probe(struct snd_soc_codec *codec) {
-	spin_lock_init(&ac10x->lock);
-
 	ac10x->codec = codec;
 	dev_set_drvdata(codec->dev, ac10x);
 	ac108_add_widgets(codec);
